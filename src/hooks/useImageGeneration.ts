@@ -69,11 +69,10 @@ function clearStoredState(): void {
 // base64文字列からFileオブジェクトを復元
 function base64ToFile(base64: string, mimeType: string, fileName: string): File {
   const byteCharacters = atob(base64);
-  const byteNumbers = new Array(byteCharacters.length);
+  const byteArray = new Uint8Array(byteCharacters.length);
   for (let i = 0; i < byteCharacters.length; i++) {
-    byteNumbers[i] = byteCharacters.charCodeAt(i);
+    byteArray[i] = byteCharacters.charCodeAt(i);
   }
-  const byteArray = new Uint8Array(byteNumbers);
   const blob = new Blob([byteArray], { type: mimeType });
   return new File([blob], fileName, { type: mimeType });
 }
@@ -177,14 +176,18 @@ export function useImageGeneration(): UseImageGenerationReturn {
     setWasInterrupted(false);
 
     try {
+      // async-parallel: fileToBase64とgetImageDimensionsは独立しているため並列実行
+      const [base64Data, dimensions] = await Promise.all([
+        fileToBase64(file),
+        getImageDimensions(file),
+      ]);
+
       // base64データを保持（localStorage保存用）
-      const base64Data = await fileToBase64(file);
       touristPhotoBase64Ref.current = {
         data: base64Data.data,
         mimeType: base64Data.mimeType,
       };
 
-      const dimensions = await getImageDimensions(file);
       const aspectRatio = findClosestAspectRatio(dimensions.width, dimensions.height);
       setDetectedAspectRatio(aspectRatio);
     } catch {
