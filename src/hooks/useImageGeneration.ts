@@ -96,6 +96,11 @@ export function useImageGeneration(): UseImageGenerationReturn {
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
+    // キャラクター画像を事前に読み込んでキャッシュする（ネットワーク不安定時の対策）
+    loadImageAsBase64(DEFAULT_CHARACTER_IMAGE).catch(() => {
+      // プリロード失敗は無視（生成時に再試行される）
+    });
+
     const stored = loadStoredState();
     if (!stored) return;
 

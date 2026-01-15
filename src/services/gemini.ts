@@ -127,20 +127,53 @@ export async function generateImage(input: ImageGenerationInput): Promise<Genera
   };
 }
 
-export async function loadImageAsBase64(url: string): Promise<{ data: string; mimeType: string }> {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  const mimeType = blob.type;
+// 画像キャッシュ（一度読み込んだ画像はメモリに保持）
+const imageCache = new Map<string, { data: string; mimeType: string }>();
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      resolve({ data: base64, mimeType });
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+export async function loadImageAsBase64(
+  url: string,
+  maxRetries = 3
+): Promise<{ data: string; mimeType: string }> {
+  // キャッシュにあればそれを返す
+  const cached = imageCache.get(url);
+  if (cached) {
+    return cached;
+  }
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const blob = await response.blob();
+      const mimeType = blob.type;
+
+      const result = await new Promise<{ data: string; mimeType: string }>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve({ data: base64, mimeType });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      // キャッシュに保存
+      imageCache.set(url, result);
+      return result;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // リトライ前に少し待機（指数バックオフ）
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
+  }
+
+  throw new Error(`画像の読み込みに失敗しました: ${lastError?.message ?? 'Unknown error'}`);
 }
 
 export function fileToBase64(file: File): Promise<{ data: string; mimeType: string }> {
